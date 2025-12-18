@@ -1,38 +1,28 @@
-"""Tools available to research agents."""
+"""Academic and scientific research tools."""
 
-from .base import BaseTool
-from .web_search import WebSearchTool
-from .content_fetcher import ContentFetcherTool
-
-# Academic/Scientific tools
-from .academic.arxiv_search import ArxivSearchTool, ArxivPaperFetchTool
-from .academic.huggingface_datasets import (
+from .arxiv_search import ArxivSearchTool, ArxivPaperFetchTool
+from .huggingface_datasets import (
     HuggingFaceDatasetsTool,
     HuggingFaceDatasetDetailsTool,
     HuggingFaceModelsTool,
 )
-from .academic.semantic_scholar import (
+from .semantic_scholar import (
     SemanticScholarTool,
     SemanticScholarCitationsTool,
     SemanticScholarAuthorTool,
     SemanticScholarRecommendationsTool,
 )
-from .academic.data_models import Paper, Dataset, Author, SearchResults
+from .data_models import Paper, Dataset, Author, SearchResults
 
 __all__ = [
-    # Base
-    "BaseTool",
-    # General
-    "WebSearchTool",
-    "ContentFetcherTool",
-    # Academic - arXiv
+    # arXiv
     "ArxivSearchTool",
     "ArxivPaperFetchTool",
-    # Academic - HuggingFace
+    # HuggingFace
     "HuggingFaceDatasetsTool",
     "HuggingFaceDatasetDetailsTool",
     "HuggingFaceModelsTool",
-    # Academic - Semantic Scholar
+    # Semantic Scholar
     "SemanticScholarTool",
     "SemanticScholarCitationsTool",
     "SemanticScholarAuthorTool",
