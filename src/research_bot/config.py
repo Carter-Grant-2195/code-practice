@@ -1,30 +1,34 @@
 """Configuration management for the research bot."""
 
 import os
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 
 @dataclass
 class Config:
-    """Configuration for the research bot."""
+    """
+    Bot configuration loaded from environment variables.
 
-    # Anthropic API settings
-    anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
+    All settings have sensible defaults but can be overridden via env vars
+    prefixed with RESEARCH_BOT_ (except ANTHROPIC_API_KEY).
+    """
+
+    # API settings
+    anthropic_api_key: str = ""
     model: str = "claude-sonnet-4-20250514"
     max_tokens: int = 4096
 
-    # Research settings
+    # Research behavior
     max_search_results: int = 10
     max_iterations: int = 5
     timeout_seconds: int = 30
 
-    # Output settings
+    # Output
     output_dir: str = "research_output"
     save_intermediate: bool = True
 
     def validate(self) -> None:
-        """Validate the configuration."""
+        """Raise ValueError if required config is missing."""
         if not self.anthropic_api_key:
             raise ValueError(
                 "ANTHROPIC_API_KEY environment variable is required. "
@@ -33,8 +37,8 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
-        """Create configuration from environment variables."""
-        config = cls(
+        """Create config from environment variables with defaults."""
+        return cls(
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
             model=os.getenv("RESEARCH_BOT_MODEL", "claude-sonnet-4-20250514"),
             max_tokens=int(os.getenv("RESEARCH_BOT_MAX_TOKENS", "4096")),
@@ -44,4 +48,3 @@ class Config:
             output_dir=os.getenv("RESEARCH_BOT_OUTPUT_DIR", "research_output"),
             save_intermediate=os.getenv("RESEARCH_BOT_SAVE_INTERMEDIATE", "true").lower() == "true",
         )
-        return config

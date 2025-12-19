@@ -1,4 +1,4 @@
-"""Content fetcher tool for retrieving web page content."""
+"""Tool for fetching and extracting readable content from web pages."""
 
 import httpx
 from bs4 import BeautifulSoup
@@ -7,10 +7,22 @@ from .base import BaseTool
 
 
 class ContentFetcherTool(BaseTool):
-    """Tool for fetching and extracting content from web pages."""
+    """
+    Fetch a URL and extract its main text content.
 
-    def __init__(self, timeout: int = 30):
+    Strips navigation, ads, and other non-content elements to return
+    clean readable text suitable for analysis.
+    """
+
+    # CSS selectors for main content (tried in order)
+    CONTENT_SELECTORS = ["article", "main", "[role='main']", ".content", "#content", ".post", ".entry"]
+
+    # Elements to remove (noise)
+    NOISE_TAGS = ["script", "style", "nav", "footer", "header", "aside", "noscript", "iframe"]
+
+    def __init__(self, timeout: int = 30, max_length: int = 10000):
         self.timeout = timeout
+        self.max_length = max_length
 
     @property
     def name(self) -> str:
@@ -18,10 +30,7 @@ class ContentFetcherTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return (
-            "Fetch the content of a web page and extract the main text. "
-            "Useful for reading articles, documentation, or other web content."
-        )
+        return "Fetch a web page and extract its main text content for reading and analysis."
 
     @property
     def parameters(self) -> dict:
@@ -30,11 +39,11 @@ class ContentFetcherTool(BaseTool):
             "properties": {
                 "url": {
                     "type": "string",
-                    "description": "The URL of the web page to fetch",
+                    "description": "The URL to fetch",
                 },
                 "extract_links": {
                     "type": "boolean",
-                    "description": "Whether to also extract links from the page",
+                    "description": "Also return links found on the page",
                     "default": False,
                 },
             },
@@ -42,73 +51,64 @@ class ContentFetcherTool(BaseTool):
         }
 
     async def execute(self, url: str, extract_links: bool = False) -> dict:
-        """
-        Fetch and extract content from a URL.
-
-        Args:
-            url: The URL to fetch
-            extract_links: Whether to extract links
-
-        Returns:
-            Dictionary with content and optionally links
-        """
+        """Fetch URL and return extracted content."""
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(
                     url,
-                    headers={"User-Agent": "ResearchBot/1.0"},
+                    headers={"User-Agent": "ResearchBot/1.0 (Content Fetcher)"},
                     timeout=float(self.timeout),
                     follow_redirects=True,
                 )
                 response.raise_for_status()
-
-                soup = BeautifulSoup(response.text, "html.parser")
-
-                # Remove script and style elements
-                for element in soup(["script", "style", "nav", "footer", "header"]):
-                    element.decompose()
-
-                # Extract title
-                title = soup.title.string if soup.title else "No title"
-
-                # Extract main content
-                # Try common content containers
-                main_content = None
-                for selector in ["article", "main", ".content", "#content", ".post"]:
-                    main_content = soup.select_one(selector)
-                    if main_content:
-                        break
-
-                if not main_content:
-                    main_content = soup.body
-
-                text = main_content.get_text(separator="\n", strip=True) if main_content else ""
-
-                # Limit text length
-                max_length = 10000
-                if len(text) > max_length:
-                    text = text[:max_length] + "... [truncated]"
-
-                result = {
-                    "title": title,
-                    "url": str(response.url),
-                    "content": text,
-                }
-
-                if extract_links:
-                    links = []
-                    for a in soup.find_all("a", href=True):
-                        href = a["href"]
-                        if href.startswith("http"):
-                            links.append({
-                                "text": a.get_text(strip=True)[:100],
-                                "url": href,
-                            })
-                    result["links"] = links[:50]  # Limit to 50 links
-
-                return result
+                return self._extract_content(response.text, str(response.url), extract_links)
 
             except httpx.HTTPError as e:
-                return {"error": f"Failed to fetch URL: {str(e)}"}
+                return {"error": f"Failed to fetch: {e}"}
             except Exception as e:
-                return {"error": f"Error processing content: {str(e)}"}
+                return {"error": f"Processing error: {e}"}
+
+    def _extract_content(self, html: str, url: str, extract_links: bool) -> dict:
+        """Parse HTML and extract readable content."""
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Remove noise elements
+        for tag in soup(self.NOISE_TAGS):
+            tag.decompose()
+
+        # Get title
+        title = soup.title.string.strip() if soup.title and soup.title.string else "Untitled"
+
+        # Find main content container
+        content_elem = None
+        for selector in self.CONTENT_SELECTORS:
+            content_elem = soup.select_one(selector)
+            if content_elem:
+                break
+
+        # Fall back to body if no content container found
+        if not content_elem:
+            content_elem = soup.body
+
+        # Extract text
+        text = content_elem.get_text(separator="\n", strip=True) if content_elem else ""
+
+        # Truncate if needed
+        if len(text) > self.max_length:
+            text = text[:self.max_length] + "\n\n[Content truncated...]"
+
+        result = {"title": title, "url": url, "content": text}
+
+        # Optionally extract links
+        if extract_links:
+            links = []
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if href.startswith("http"):
+                    links.append({
+                        "text": a.get_text(strip=True)[:100],
+                        "url": href,
+                    })
+            result["links"] = links[:50]  # Cap at 50 links
+
+        return result

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ruff check:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(python -m research_bot.gui:*)",
+      "Bash(python:*)",
+      "Bash(py -3.12 -m pip install customtkinter)"
+    ]
+  }
+}

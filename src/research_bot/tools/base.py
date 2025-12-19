@@ -1,37 +1,45 @@
-"""Base class for research tools."""
+"""Abstract base class for research tools."""
 
 from abc import ABC, abstractmethod
 from typing import Any
 
 
 class BaseTool(ABC):
-    """Abstract base class for all research tools."""
+    """
+    Base class for all tools available to the research agent.
+
+    To create a new tool:
+    1. Inherit from BaseTool
+    2. Implement name, description, parameters properties
+    3. Implement async execute() method
+    4. Register in tools/__init__.py
+    """
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """The name of the tool."""
-        pass
+        """Unique tool identifier used by Claude to call this tool."""
+        ...
 
     @property
     @abstractmethod
     def description(self) -> str:
-        """Description of what the tool does."""
-        pass
+        """Explains to Claude when and how to use this tool."""
+        ...
 
     @property
     @abstractmethod
     def parameters(self) -> dict:
-        """JSON schema for the tool's parameters."""
-        pass
+        """JSON schema defining the tool's input parameters."""
+        ...
 
     @abstractmethod
-    async def execute(self, **kwargs) -> Any:
-        """Execute the tool with the given parameters."""
-        pass
+    async def execute(self, **kwargs: Any) -> Any:
+        """Run the tool with given parameters and return results."""
+        ...
 
     def to_claude_tool(self) -> dict:
-        """Convert this tool to Claude's tool format."""
+        """Convert to Claude API tool format."""
         return {
             "name": self.name,
             "description": self.description,
