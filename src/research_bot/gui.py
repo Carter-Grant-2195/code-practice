@@ -1,13 +1,19 @@
 """
 CustomTkinter GUI for the Research Bot.
 
+LEARNING NOTE: This file demonstrates desktop GUI development in Python:
+1. CustomTkinter - Modern, customizable Tkinter (built-in Python GUI library)
+2. Threading - Running long tasks without freezing the GUI
+3. Event-driven programming - Responding to user actions (button clicks, etc.)
+4. MVC-like pattern - Separating UI from business logic
+
 Run with: python src/research_bot/gui.py
 Or:       research-bot-gui (if installed via pip)
 """
 
 import sys
-import threading
-import asyncio
+import threading  # For running research in background without freezing GUI
+import asyncio  # For running async research function
 from datetime import datetime
 from pathlib import Path
 
@@ -18,43 +24,79 @@ if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, str(src_path))
     from research_bot.config import Config
     from research_bot.agents.research_agent import ResearchAgent, ResearchResult
+    from research_bot.exporters import get_exporter
 else:
     # Running as module or installed package
     from .config import Config
     from .agents.research_agent import ResearchAgent, ResearchResult
+    from .exporters import get_exporter
 
 import customtkinter as ctk
 
 
-# Appearance settings
+# LEARNING NOTE - Global GUI settings:
+# These affect all windows in the application
 ctk.set_appearance_mode("dark")  # "dark", "light", or "system"
 ctk.set_default_color_theme("blue")  # "blue", "green", "dark-blue"
 
 
 class ResearchBotGUI(ctk.CTk):
-    """Main application window."""
+    """
+    Main application window.
+
+    LEARNING NOTE - Object-Oriented GUI:
+    We inherit from ctk.CTk (CustomTkinter's main window class).
+    This gives us all the window functionality automatically.
+
+    LEARNING NOTE - GUI Structure:
+    1. __init__: Set up the window and create UI elements
+    2. _create_widgets: Create all buttons, text boxes, etc.
+    3. _layout_widgets: Arrange them on screen
+    4. Event handlers (_on_*_click): Respond to user actions
+
+    This separation makes the code organized and maintainable.
+    """
 
     def __init__(self):
-        super().__init__()
+        """Initialize the main window."""
+        super().__init__()  # Call parent class constructor
 
-        # Window setup
-        self.title("Research Bot")
-        self.geometry("900x700")
-        self.minsize(700, 500)
+        # LEARNING NOTE - Window configuration:
+        # These methods set up the basic window properties
+        self.title("Research Bot")  # Title bar text
+        self.geometry("900x700")  # Width x Height in pixels
+        self.minsize(700, 500)  # Minimum window size
 
-        # State
-        self.is_researching = False
-        self.current_result: ResearchResult | None = None
+        # LEARNING NOTE - Application state:
+        # These variables track what's happening in the app
+        # Unlike widgets (buttons, etc.), these are just data
+        self.is_researching = False  # Prevent multiple simultaneous searches
+        self.current_result: ResearchResult | None = None  # Last result
         self.total_cost = 0.0  # Track cumulative cost for session
 
-        # Build UI
+        # LEARNING NOTE - Two-phase UI construction:
+        # 1. Create widgets (buttons, text boxes, etc.)
+        # 2. Layout widgets (position them on screen)
+        # This separation makes the code cleaner
         self._create_widgets()
         self._layout_widgets()
 
     def _create_widgets(self):
-        """Create all UI components."""
+        """
+        Create all UI components.
+
+        LEARNING NOTE - What are widgets?
+        Widgets are GUI elements: buttons, text boxes, labels, etc.
+        Each widget is an object with properties (text, color, size, etc.)
+
+        LEARNING NOTE - Frames:
+        Frames are containers that group related widgets together.
+        Think of them like invisible boxes that organize your layout.
+        """
 
         # === Top Frame: Query Input ===
+        # LEARNING NOTE: self.top_frame means this frame belongs to this window
+        # ctk.CTkFrame(self) means "create a frame inside this window"
         self.top_frame = ctk.CTkFrame(self)
 
         self.query_label = ctk.CTkLabel(
@@ -161,12 +203,28 @@ class ResearchBotGUI(ctk.CTk):
         # === Results Notebook (Tabbed View) ===
         self.tabview = ctk.CTkTabview(self)
         self.tabview.add("Summary")
+        self.tabview.add("Key Findings")
+        self.tabview.add("Extracted Data")
         self.tabview.add("Sources")
         self.tabview.add("Usage")
 
         # Summary tab
         self.summary_text = ctk.CTkTextbox(
             self.tabview.tab("Summary"),
+            font=ctk.CTkFont(family="Consolas", size=13),
+            wrap="word",
+        )
+
+        # Key Findings tab
+        self.findings_text = ctk.CTkTextbox(
+            self.tabview.tab("Key Findings"),
+            font=ctk.CTkFont(family="Consolas", size=13),
+            wrap="word",
+        )
+
+        # Extracted Data tab
+        self.extracted_text = ctk.CTkTextbox(
+            self.tabview.tab("Extracted Data"),
             font=ctk.CTkFont(family="Consolas", size=13),
             wrap="word",
         )
@@ -188,12 +246,29 @@ class ResearchBotGUI(ctk.CTk):
         # === Bottom Frame: Actions ===
         self.bottom_frame = ctk.CTkFrame(self)
 
+        # Export format selection
+        self.format_label = ctk.CTkLabel(
+            self.bottom_frame,
+            text="Format:",
+            font=ctk.CTkFont(size=12),
+        )
+
+        # LEARNING NOTE - Export Format Dropdown:
+        # This lets users choose between JSON, Markdown, HTML, and CSV
+        # Each format has different use cases (see comments in exporters)
+        self.format_dropdown = ctk.CTkComboBox(
+            self.bottom_frame,
+            values=["Text (.txt)", "JSON (.json)", "Markdown (.md)", "HTML (.html)", "CSV (.csv)"],
+            width=140,
+        )
+        self.format_dropdown.set("Text (.txt)")
+
         self.save_button = ctk.CTkButton(
             self.bottom_frame,
-            text="Save Results",
+            text="Export",
             command=self._on_save_click,
             state="disabled",
-            width=120,
+            width=100,
         )
 
         self.clear_button = ctk.CTkButton(
@@ -202,7 +277,7 @@ class ResearchBotGUI(ctk.CTk):
             command=self._on_clear_click,
             fg_color="gray",
             hover_color="darkgray",
-            width=100,
+            width=80,
         )
 
         self.reset_cost_button = ctk.CTkButton(
@@ -211,7 +286,7 @@ class ResearchBotGUI(ctk.CTk):
             command=self._on_reset_cost_click,
             fg_color="#8B4513",
             hover_color="#A0522D",
-            width=100,
+            width=90,
         )
 
         self.theme_switch = ctk.CTkSwitch(
@@ -253,11 +328,15 @@ class ResearchBotGUI(ctk.CTk):
         # Tabview - results
         self.tabview.pack(fill="both", expand=True, padx=15, pady=10)
         self.summary_text.pack(fill="both", expand=True, padx=5, pady=5)
+        self.findings_text.pack(fill="both", expand=True, padx=5, pady=5)
+        self.extracted_text.pack(fill="both", expand=True, padx=5, pady=5)
         self.sources_text.pack(fill="both", expand=True, padx=5, pady=5)
         self.usage_text.pack(fill="both", expand=True, padx=5, pady=5)
 
         # Bottom frame - actions
         self.bottom_frame.pack(fill="x", padx=15, pady=(5, 15))
+        self.format_label.pack(side="left", padx=(10, 5), pady=10)
+        self.format_dropdown.pack(side="left", padx=5, pady=10)
         self.save_button.pack(side="left", padx=10, pady=10)
         self.clear_button.pack(side="left", padx=5, pady=10)
         self.reset_cost_button.pack(side="left", padx=5, pady=10)
@@ -290,23 +369,48 @@ class ResearchBotGUI(ctk.CTk):
         self._start_research(query, max_iterations, model)
 
     def _on_save_click(self):
-        """Save results to file."""
+        """
+        Save/export results to file.
+
+        LEARNING NOTE - Export Format Selection:
+        We use the format dropdown to determine which exporter to use.
+        Each format has different extensions and file type filters.
+        """
         if not self.current_result:
             return
 
+        # Get selected format
+        format_selection = self.format_dropdown.get()
+
+        # Map format selection to exporter type and extension
+        format_map = {
+            "Text (.txt)": ("txt", ".txt", [("Text files", "*.txt")]),
+            "JSON (.json)": ("json", ".json", [("JSON files", "*.json")]),
+            "Markdown (.md)": ("markdown", ".md", [("Markdown files", "*.md")]),
+            "HTML (.html)": ("html", ".html", [("HTML files", "*.html")]),
+            "CSV (.csv)": ("csv", ".csv", [("CSV files", "*.csv")]),
+        }
+
+        format_type, extension, filetypes = format_map.get(
+            format_selection, ("txt", ".txt", [("Text files", "*.txt")])
+        )
+        filetypes.append(("All files", "*.*"))
+
         # Ask for save location
         filepath = ctk.filedialog.asksaveasfilename(
-            defaultextension=".txt",
-            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-            initialfile=f"research_{datetime.now():%Y%m%d_%H%M%S}.txt",
+            defaultextension=extension,
+            filetypes=filetypes,
+            initialfile=f"research_{datetime.now():%Y%m%d_%H%M%S}{extension}",
         )
 
         if filepath:
-            self._save_to_file(filepath)
+            self._save_to_file(filepath, format_type)
 
     def _on_clear_click(self):
         """Clear all results."""
         self.summary_text.delete("1.0", "end")
+        self.findings_text.delete("1.0", "end")
+        self.extracted_text.delete("1.0", "end")
         self.sources_text.delete("1.0", "end")
         self.usage_text.delete("1.0", "end")
         self.current_result = None
@@ -331,42 +435,78 @@ class ResearchBotGUI(ctk.CTk):
     # === Research Logic ===
 
     def _start_research(self, query: str, max_iterations: int, model: str):
-        """Run research in a background thread."""
+        """
+        Run research in a background thread.
+
+        LEARNING NOTE - Why threading?
+        If we run research directly, the GUI freezes!
+        Research takes time (searching web, calling API), and during that time
+        the GUI can't respond to clicks or update the screen.
+
+        Solution: Run research in a separate thread (background worker).
+        - Main thread: Keeps GUI responsive
+        - Background thread: Does the research work
+
+        LEARNING NOTE - Threading safety:
+        GUIs aren't thread-safe! You can't update widgets from background threads.
+        We use self.after(0, ...) to safely schedule UI updates on the main thread.
+        """
+        # Update UI to show we're working
         self.is_researching = True
         self.search_button.configure(state="disabled", text="Researching...")
-        self.progress_bar.configure(mode="indeterminate")
+        self.progress_bar.configure(mode="indeterminate")  # Animated progress bar
         self.progress_bar.start()
         self._set_status(f"Researching: {query[:50]}...")
 
         # Clear previous results
         self.summary_text.delete("1.0", "end")
+        self.findings_text.delete("1.0", "end")
+        self.extracted_text.delete("1.0", "end")
         self.sources_text.delete("1.0", "end")
         self.usage_text.delete("1.0", "end")
 
         def run():
+            """
+            This function runs in the background thread.
+
+            LEARNING NOTE - Why nested function?
+            We define this function inside _start_research so it has access
+            to query, max_iterations, and model from the outer scope.
+            This is called a "closure" in Python.
+            """
             try:
-                # Build config
+                # Build config from settings
                 config = Config.from_env()
                 config.max_iterations = max_iterations
                 config.model = model
                 config.validate()
 
-                # Run research
+                # Run research (this takes time!)
                 agent = ResearchAgent(config)
                 result = asyncio.run(agent.research(query))
 
-                # Update UI on main thread
+                # LEARNING NOTE - self.after():
+                # Schedule a function to run on the main thread
+                # after(0, func) means "run func as soon as possible on main thread"
+                # This is how we safely update the GUI from a background thread
                 self.after(0, lambda: self._on_research_complete(result))
 
             except ValueError as e:
+                # Invalid config (missing API key, etc.)
                 self.after(0, lambda: self._show_error(str(e)))
                 self.after(0, self._reset_ui)
             except Exception as e:
+                # Unexpected error
                 self.after(0, lambda: self._show_error(f"Research failed: {e}"))
                 self.after(0, self._reset_ui)
 
+        # LEARNING NOTE - Creating and starting a thread:
+        # threading.Thread creates a new thread
+        # - target=run: function to run in the thread
+        # - daemon=True: thread dies when main program exits
+        # thread.start() begins execution
         thread = threading.Thread(target=run, daemon=True)
-        thread.start()
+        thread.start()  # This returns immediately; run() executes in background
 
     def _on_research_complete(self, result: ResearchResult):
         """Handle completed research."""
@@ -388,6 +528,21 @@ class ResearchBotGUI(ctk.CTk):
             self.summary_text.insert("1.0", header + result.summary)
         else:
             self.summary_text.insert("1.0", result.summary)
+
+        # Display key findings (NEW!)
+        if result.key_findings:
+            findings_text = f"Found {len(result.key_findings)} key findings:\n\n"
+            for i, finding in enumerate(result.key_findings, 1):
+                findings_text += f"{i}. {finding}\n\n"
+        else:
+            findings_text = "No key findings extracted.\n\n"
+            findings_text += "Key findings are automatically extracted from bullet points\n"
+            findings_text += "and numbered lists in the research summary."
+        self.findings_text.insert("1.0", findings_text)
+
+        # Display extracted data (NEW!)
+        extracted_text = self._format_extracted_data(result)
+        self.extracted_text.insert("1.0", extracted_text)
 
         # Display sources
         if result.sources:
@@ -418,6 +573,10 @@ Cost Breakdown:
 Research Stats:
   - Iterations: {result.iterations}
   - Sources fetched: {len(result.sources)}
+  - Key findings: {len(result.key_findings)}
+  - Has specs: {'Yes' if result.extracted_data.specifications else 'No'}
+  - Has code: {'Yes' if result.extracted_data.code_snippets else 'No'}
+  - Has prices: {'Yes' if result.extracted_data.prices else 'No'}
 """
         self.usage_text.insert("1.0", usage_text)
 
@@ -430,6 +589,87 @@ Research Stats:
 
         # Switch to summary tab
         self.tabview.set("Summary")
+
+    def _format_extracted_data(self, result: ResearchResult) -> str:
+        """
+        Format extracted data for display in the Extracted Data tab.
+
+        LEARNING NOTE - Structured Data Display:
+        This shows all the data we extracted using regex patterns -
+        no additional API calls were needed for this extraction!
+        """
+        data = result.extracted_data
+        lines = ["Extracted Data\n==============\n"]
+
+        if data.is_empty():
+            lines.append("No structured data was extracted.\n\n")
+            lines.append("The data extractor looks for:\n")
+            lines.append("  - Technical specifications (RAM: 16GB, CPU: M3)\n")
+            lines.append("  - Statistics and percentages (85%, 1.5M users)\n")
+            lines.append("  - Prices ($19.99, $100/month)\n")
+            lines.append("  - Version numbers (v2.0, Python 3.12)\n")
+            lines.append("  - Dates (2024-01-15, March 2024)\n")
+            lines.append("  - Code snippets (from markdown code blocks)\n")
+            lines.append("  - Key entities (frequently mentioned terms)\n")
+            return "\n".join(lines)
+
+        # Technical Specifications
+        if data.specifications:
+            lines.append("\nTechnical Specifications\n------------------------")
+            for key, value in data.specifications.items():
+                lines.append(f"  {key}: {value}")
+
+        # Statistics
+        if data.statistics:
+            lines.append("\n\nStatistics\n----------")
+            for stat, context in list(data.statistics.items())[:10]:
+                lines.append(f"  {stat}")
+                # Show truncated context
+                ctx = context[:80] + "..." if len(context) > 80 else context
+                lines.append(f"    Context: {ctx}")
+
+        # Prices
+        if data.prices:
+            lines.append("\n\nPricing\n-------")
+            for item, price in data.prices.items():
+                lines.append(f"  {item}: {price}")
+
+        # Versions
+        if data.versions:
+            lines.append("\n\nVersion Numbers\n---------------")
+            lines.append(f"  {', '.join(data.versions[:15])}")
+
+        # Dates
+        if data.dates:
+            lines.append("\n\nDates Mentioned\n---------------")
+            lines.append(f"  {', '.join(data.dates[:15])}")
+
+        # Code Snippets
+        if data.code_snippets:
+            lines.append("\n\nCode Snippets\n-------------")
+            for i, snippet in enumerate(data.code_snippets[:5], 1):
+                lang = snippet.get("language", "text")
+                code = snippet.get("code", "")
+                # Truncate long code
+                if len(code) > 200:
+                    code = code[:200] + "..."
+                lines.append(f"\n  [{i}] Language: {lang}")
+                lines.append(f"  {code}")
+
+        # Key Entities
+        if data.entities:
+            lines.append("\n\nKey Entities Mentioned\n----------------------")
+            lines.append(f"  {', '.join(data.entities[:15])}")
+
+        # URLs
+        if data.urls:
+            lines.append(f"\n\nURLs Found: {len(data.urls)}")
+            for url in data.urls[:5]:
+                lines.append(f"  - {url}")
+            if len(data.urls) > 5:
+                lines.append(f"  ... and {len(data.urls) - 5} more")
+
+        return "\n".join(lines)
 
     def _reset_ui(self):
         """Reset UI after research completes."""
@@ -451,13 +691,22 @@ Research Stats:
         self.summary_text.delete("1.0", "end")
         self.summary_text.insert("1.0", f"ERROR: {message}\n\nMake sure ANTHROPIC_API_KEY is set.")
 
-    def _save_to_file(self, filepath: str):
-        """Save results to a text file."""
+    def _save_to_file(self, filepath: str, format_type: str = "txt"):
+        """
+        Save results to file using the appropriate exporter.
+
+        LEARNING NOTE - Exporter Factory:
+        We use get_exporter() to get the right exporter for the format.
+        This is the Factory Pattern - we create objects based on input.
+        """
         if not self.current_result:
             return
 
         result = self.current_result
-        content = f"""Research Results
+
+        # Use legacy text format for .txt (backwards compatible)
+        if format_type == "txt":
+            content = f"""Research Results
 ================
 Query: {result.query}
 Date: {datetime.now():%Y-%m-%d %H:%M:%S}
@@ -475,15 +724,31 @@ Summary
 -------
 {result.summary}
 
-Sources
--------
+Key Findings
+------------
 """
-        for i, src in enumerate(result.sources, 1):
-            content += f"{i}. {src.get('title', 'Untitled')}\n"
-            content += f"   {src.get('url', 'No URL')}\n\n"
+            if result.key_findings:
+                for i, finding in enumerate(result.key_findings, 1):
+                    content += f"{i}. {finding}\n"
+            else:
+                content += "(No key findings extracted)\n"
 
-        Path(filepath).write_text(content, encoding="utf-8")
-        self._set_status(f"Saved to {Path(filepath).name}")
+            content += "\nSources\n-------\n"
+            for i, src in enumerate(result.sources, 1):
+                content += f"{i}. {src.get('title', 'Untitled')}\n"
+                content += f"   {src.get('url', 'No URL')}\n\n"
+
+            Path(filepath).write_text(content, encoding="utf-8")
+        else:
+            # Use the appropriate exporter
+            try:
+                exporter = get_exporter(format_type)
+                exporter.export(result, filepath)
+            except Exception as e:
+                self._show_error(f"Export failed: {e}")
+                return
+
+        self._set_status(f"Exported to {Path(filepath).name}")
 
 
 def main():

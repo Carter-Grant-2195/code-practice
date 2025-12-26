@@ -1,5 +1,8 @@
 """Tool for fetching and extracting readable content from web pages."""
 
+import ipaddress
+from urllib.parse import urlparse
+
 import httpx
 from bs4 import BeautifulSoup
 
@@ -23,6 +26,8 @@ class ContentFetcherTool(BaseTool):
     def __init__(self, timeout: int = 30, max_length: int = 10000):
         self.timeout = timeout
         self.max_length = max_length
+        # Maximum number of redirects to prevent redirect loops
+        self.max_redirects = 5
 
     @property
     def name(self) -> str:
@@ -50,19 +55,79 @@ class ContentFetcherTool(BaseTool):
             "required": ["url"],
         }
 
+    def _is_safe_url(self, url: str) -> tuple[bool, str]:
+        """
+        Validate URL to prevent SSRF attacks.
+
+        Returns (is_valid, error_message).
+        Blocks:
+        - Non-HTTP(S) protocols
+        - Private/internal IP addresses
+        - Localhost addresses
+        """
+        try:
+            parsed = urlparse(url)
+
+            # Only allow HTTP and HTTPS
+            if parsed.scheme not in ("http", "https"):
+                return False, f"Invalid protocol: {parsed.scheme}. Only HTTP(S) allowed."
+
+            # Block if no hostname
+            if not parsed.hostname:
+                return False, "URL must have a valid hostname"
+
+            # Try to resolve hostname to IP and check if it's private
+            try:
+                # Check if hostname is already an IP
+                ip = ipaddress.ip_address(parsed.hostname)
+                if ip.is_private or ip.is_loopback or ip.is_link_local:
+                    return False, "Cannot access private, loopback, or link-local IP addresses"
+            except ValueError:
+                # Not an IP address, it's a hostname - this is fine
+                # Note: We can't resolve DNS here without async DNS, but blocking
+                # IP addresses in the URL is a good first defense
+                pass
+
+            # Block common localhost variations
+            localhost_patterns = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
+            if parsed.hostname.lower() in localhost_patterns:
+                return False, "Cannot access localhost"
+
+            return True, ""
+        except Exception as e:
+            return False, f"Invalid URL format: {e}"
+
     async def execute(self, url: str, extract_links: bool = False) -> dict:
-        """Fetch URL and return extracted content."""
-        async with httpx.AsyncClient() as client:
+        """
+        Fetch URL and return extracted content.
+
+        Security: Validates URL before fetching to prevent SSRF attacks.
+        Limits redirects to prevent infinite loops.
+        """
+        # Validate URL for security
+        is_valid, error_msg = self._is_safe_url(url)
+        if not is_valid:
+            return {"error": f"Security: {error_msg}"}
+
+        # Create HTTP client with security settings
+        async with httpx.AsyncClient(
+            max_redirects=self.max_redirects,  # Limit redirects
+            verify=True,  # Verify SSL certificates
+        ) as client:
             try:
                 response = await client.get(
                     url,
-                    headers={"User-Agent": "ResearchBot/1.0 (Content Fetcher)"},
+                    headers={
+                        "User-Agent": "ResearchBot/1.0 (Educational Research Tool; +https://github.com)"
+                    },
                     timeout=float(self.timeout),
                     follow_redirects=True,
                 )
                 response.raise_for_status()
                 return self._extract_content(response.text, str(response.url), extract_links)
 
+            except httpx.TooManyRedirects:
+                return {"error": "Too many redirects - possible redirect loop"}
             except httpx.HTTPError as e:
                 return {"error": f"Failed to fetch: {e}"}
             except Exception as e:

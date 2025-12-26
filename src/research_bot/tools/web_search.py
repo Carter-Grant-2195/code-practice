@@ -52,15 +52,28 @@ class WebSearchTool(BaseTool):
         """
         Execute web search and parse results from DuckDuckGo HTML.
 
+        Security: Validates input, limits results, handles timeouts.
         Returns list of {title, url, snippet} dicts.
         """
-        num_results = min(num_results, self.max_results)
+        # Validate query is not empty or too long
+        if not query or not query.strip():
+            return [{"error": "Search query cannot be empty"}]
 
-        async with httpx.AsyncClient() as client:
+        if len(query) > 500:
+            return [{"error": "Search query too long (max 500 characters)"}]
+
+        # Sanitize and limit num_results
+        num_results = max(1, min(num_results, self.max_results))
+
+        # Use secure client settings
+        async with httpx.AsyncClient(
+            verify=True,  # Verify SSL certificates
+            max_redirects=3,  # Limit redirects
+        ) as client:
             try:
                 response = await client.post(
                     self.SEARCH_URL,
-                    data={"q": query},
+                    data={"q": query.strip()},
                     headers={
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                         "Content-Type": "application/x-www-form-urlencoded",
@@ -70,8 +83,12 @@ class WebSearchTool(BaseTool):
                 response.raise_for_status()
                 return self._parse_results(response.text, num_results)
 
+            except httpx.TimeoutException:
+                return [{"error": "Search request timed out"}]
             except httpx.HTTPError as e:
                 return [{"error": f"Search failed: {e}"}]
+            except Exception as e:
+                return [{"error": f"Unexpected error: {e}"}]
 
     def _parse_results(self, html: str, limit: int) -> list[dict[str, str]]:
         """Extract search results from DuckDuckGo HTML response."""
